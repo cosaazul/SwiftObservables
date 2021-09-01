@@ -126,10 +126,10 @@ To do thiis, simply pass the `Observation` to the `remove()` call, using the `$`
 `remove()` returns `false` if the passed in `Observation` is not associated with the
 `Observable` property it is called on.  This is hamless, and may indicate an earlier call to 
 `remove()`.  Otherwise, the `Observation` is removed from the property's observation array 
-and the associated closure reference is released.  Note that observe() creates a strong 
+and the associated closure reference is released.  Note that `observe()` creates a strong 
 reference to the closure passed in (this will be fixed in a future update), so if you do not call 
-remove() when the observer goes out of scope, the observed object may keep it alive through 
+`remove()` when the observer goes out of scope, the observed object may keep it alive through 
 the strong reference to the closure.  The reverse is not true, however: the observation holds no 
 reference to the observed object, so observing something does not keep it alive (except in the 
-case of binding since where both objects observe each other).
+case of binding where both objects observe each other).
 
