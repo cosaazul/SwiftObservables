@@ -7,7 +7,7 @@
 
 
 // Use this to specify the callback type the observation represents
-enum ObservationType { case disabled, all, did, will }
+public enum ObservationType { case disabled, all, did, will }
 
 
 // An Observation indicates how an Observable should invoke the closure
@@ -19,7 +19,7 @@ enum ObservationType { case disabled, all, did, will }
 // with it and communicates the intention of the observer that created it.
 // The observer can set its type just once, or it can store the Observation,
 // allowing it to communicate changes to the Observable holding it.
-class Observation {
+public class Observation {
 
     // This property is computed based on the state of the observation type
     var isEnabled: Bool {

@@ -9,7 +9,7 @@
 /// Declare this wrapper on any property using `@Observable` to access
 /// the Observer system w/o involving NSObject/Obj-C KPO.  It adds code
 /// to manage `Observation` arrays, and provide didSet/willSet-like triggers.
-@propertyWrapper class Observable<Value> {
+@propertyWrapper public class Observable<Value> {
 
     // ------------------------ APIs ------------------------
 
