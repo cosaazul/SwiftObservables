@@ -1,7 +1,7 @@
 //
 //  Observation.swift  
 //
-//  Copyright © 2019 3Hour Software. All rights reserved.
+//  Copyright © 2021 cosaazul. All rights reserved.
 //
 // Purpose: An object that mediates observation settings between an Observable and an observer.
 

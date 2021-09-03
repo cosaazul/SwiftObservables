@@ -1,7 +1,7 @@
 //
 //  Observable.swift  
 //
-//  Copyright © 2019 3Hour Software. All rights reserved.
+//  Copyright © 2021 cosaazul. All rights reserved.
 //
 // Purpose: Property wrapper that adds did/will set connectivity to Observers
 
