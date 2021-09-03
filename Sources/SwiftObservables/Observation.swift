@@ -22,16 +22,16 @@ public enum ObservationType { case disabled, all, did, will }
 public class Observation {
 
     // This property is computed based on the state of the observation type
-    var isEnabled: Bool {
+    public var isEnabled: Bool {
         return kind != .disabled
     }   // isEnabled
     
     // This property can be used to control whether one, both, or none of the callbacks are triggered
-    var kind: ObservationType
+    public var kind: ObservationType
     
     
     // default
-    init(_ type: ObservationType) {
+    public init(_ type: ObservationType) {
         kind = type
     }   // init
 

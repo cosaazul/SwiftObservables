@@ -21,7 +21,7 @@
     /// used to change when the observation closure gets called, or to disable the
     /// observation.  This object can be ignored, in which case the observation
     /// will persist in its original state for the life of the observed item.
-    func observe(_ type: ObservationType, using call: @escaping ObservationFunc) -> Observation {
+    public func observe(_ type: ObservationType, using call: @escaping ObservationFunc) -> Observation {
         let o = Observation(type)
         if callbacks != nil {
             callbacks!.append((o, call))
@@ -45,7 +45,7 @@
     /// object.  You must call `unbind()` in order to release the two Observables
     /// before binding one to a different one.  It is presently unknown how this
     /// may behave within the context of threads, so assume it is unsafe/unpredictable.
-    func bind(_ obj: Observable<Value>) -> Bool {
+    public func bind(_ obj: Observable<Value>) -> Bool {
         let b = (binding == nil)
         if (b) {
             // us watching them
@@ -66,7 +66,7 @@
     /// bound to anything.  Otherwise, the binding observation is released for each
     /// object and the function returns` true`.  It is presently unknown how this may
     /// behave within the context of threads, so assume it is unsafe/unpredictable.
-    func unbind(_ obj: Observable<Value>) -> Bool {
+    public func unbind(_ obj: Observable<Value>) -> Bool {
         if let o = binding, let o2 = obj.binding, obj.remove(o) {
             binding = nil
             cobinding = nil
@@ -104,7 +104,7 @@
     /// explicitly verify that the passed in object is actually bound to the
     /// Observable, so no one accidentally unbinds two unrelated items and creates
     /// multiple orphaned bindings.
-    func remove(_ o: Observation) -> Bool {
+    public func remove(_ o: Observation) -> Bool {
         if (callbacks != nil) && !callbacks!.isEmpty {
             // There's something to search
             let iEnd = callbacks!.count
@@ -124,7 +124,7 @@
     /// callback format
     ///
     /// Declare your observation closure to match this signature and pass it observe()
-    typealias ObservationFunc = (_ newValue: Value, _ oldValue: Value?) -> Void
+    public typealias ObservationFunc = (_ newValue: Value, _ oldValue: Value?) -> Void
 
 
     // ------------------------ Properties ------------------------
@@ -198,13 +198,13 @@
 
 
     // projected value
-    var projectedValue: Observable<Value> {
+    public var projectedValue: Observable<Value> {
         get { return self }
      }   // computed
 
     
     // wrapped property -- this triggers the calls to did/will for any observers
-    var wrappedValue: Value {
+    public var wrappedValue: Value {
         get { return _value }
         
         set {
@@ -248,7 +248,7 @@
 
 
     // required for initial values
-    init(wrappedValue: Value) {
+    public init(wrappedValue: Value) {
         _value = wrappedValue
     }   // init
 
