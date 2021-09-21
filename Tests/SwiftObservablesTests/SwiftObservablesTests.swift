@@ -1,10 +1,14 @@
     import XCTest
     @testable import SwiftObservables
-    
+
+    // for clarity in the tests
+    let defaultValue_x = 15
+    let defaultValue_label = "test"
+
     // A collection of items to watch during tests
     class ObservableItems {
-        @Observable var x = 15
-        @Observable var label = "test"
+        @Observable var x = defaultValue_x
+        @Observable var label = defaultValue_label
     }   // ObservableItems
 
 
@@ -94,7 +98,7 @@
         func testObservable() {
             // just validating the starting state of the tests
             _reset_all()
-            XCTAssertEqual(gTestItems.x, 15)
+            XCTAssertEqual(gTestItems.x, defaultValue_x)
             XCTAssertEqual(counter_X, 0)
             XCTAssertEqual(counter_2nd_watcher, 0)
             XCTAssertEqual(captureNew_X, 0)
@@ -108,7 +112,7 @@
             XCTAssertEqual(counter_X, 1)
             XCTAssertEqual(counter_2nd_watcher, 0)
             XCTAssertEqual(captureNew_X, 10)
-            XCTAssertEqual(captureOld_X, 15)
+            XCTAssertEqual(captureOld_X, defaultValue_x)
             XCTAssertTrue(bPossibleDidClosure_X)
             XCTAssertFalse(bPossibleWillClosure_X)
             
@@ -201,14 +205,14 @@
             XCTAssertEqual(captureOld_X, 0)         // ditto
             XCTAssertFalse(bPossibleDidClosure_X)
             XCTAssertFalse(bPossibleWillClosure_X)
-        }   // func testObservable
+        }   // testObservable
 
 
         // Test of the bind() and unbind() calls
         func testBinding() {
             // just validating the starting state of the tests
             _reset_all()
-            XCTAssertEqual(gTestItems.label, "test")
+            XCTAssertEqual(gTestItems.label, defaultValue_label)
             XCTAssertEqual(bound_label, "anything")
             XCTAssertEqual(counter_Label, 0)
             
@@ -268,7 +272,255 @@
             XCTAssertTrue($another_label.unbind($bound_label))
             another_label = "free again!"
             XCTAssertNotEqual(another_label, bound_label)
-        }   // func testBinding
+        }   // testBinding
+
+
+        func testObservations() {
+            // test that Observation objects behave as expected
+            let ob = Observation(.did)
+
+            // Verify the initial state
+            XCTAssertEqual(ob.kind, .did)
+            XCTAssertTrue(ob.isEnabled)
+            XCTAssertFalse(ob.isObsolete)
+
+            // test disabling it
+            ob.kind = .disabled
+            XCTAssertEqual(ob.kind, .disabled)
+            XCTAssertFalse(ob.isEnabled)
+            XCTAssertFalse(ob.isObsolete)
+
+            // test that it can be reactivated
+            ob.kind = .did
+            XCTAssertEqual(ob.kind, .did)
+            XCTAssertTrue(ob.isEnabled)
+            XCTAssertFalse(ob.isObsolete)
+
+            // test that it can be set to .will
+            ob.kind = .will
+            XCTAssertEqual(ob.kind, .will)
+            XCTAssertTrue(ob.isEnabled)
+            XCTAssertFalse(ob.isObsolete)
+
+            // test that it can be set to .all
+            ob.kind = .all
+            XCTAssertEqual(ob.kind, .all)
+            XCTAssertTrue(ob.isEnabled)
+            XCTAssertFalse(ob.isObsolete)
+
+            // test that it can be obsoleted, disabling it
+            ob.isObsolete = true
+            XCTAssertEqual(ob.kind, .disabled)
+            XCTAssertFalse(ob.isEnabled)
+            XCTAssertTrue(ob.isObsolete)
+
+            // test that obsolescence is permanent
+            ob.isObsolete = false
+            XCTAssertTrue(ob.isObsolete)
+            ob.kind = .will
+            XCTAssertEqual(ob.kind, .disabled)
+            XCTAssertFalse(ob.isEnabled)
+        }   // testObservations
+
+
+        func testObsolescence() {
+            // Verify isObsolete works as intended on live Observations
+
+            // a bunch of counters to monitor our test closures
+            var count1 = 0
+            var count2 = 0
+            var count3 = 0
+            var count4 = 0
+
+            // establish a bunch of observations
+            let items = ObservableItems()
+            let ob1 = items.$x.observe(.did) { _, _ in
+                count1 += 1
+            }
+            // sanity check that above step altered nothing
+            XCTAssertEqual(count1, 0)
+
+            let ob2 = items.$x.observe(.will) { _, _ in
+                count2 += 1
+            }
+            // sanity check that above step altered nothing
+            XCTAssertEqual(count2, 0)
+
+            let ob3 = items.$x.observe(.did) { _, _ in
+                count3 += 1
+            }
+            // sanity check that above step altered nothing
+            XCTAssertEqual(count3, 0)
+
+            let ob4 = items.$x.observe(.all) { _, _ in
+                count4 += 1     // this counter will increase by 2 using .all
+            }
+            // sanity check that above step altered nothing
+            XCTAssertEqual(count4, 0)
+
+            // baseline tests to show closures are triggered
+            items.x = 100
+            XCTAssertEqual(count1, 1)
+            XCTAssertEqual(count2, 1)
+            XCTAssertEqual(count3, 1)
+            XCTAssertEqual(count4, 2)   // ob4 is .all, so it gets called twice
+
+            ob2.isObsolete = true
+            items.x = 200
+            XCTAssertEqual(count1, 2)
+            XCTAssertEqual(count2, 1)   // this should not be called anymore
+            XCTAssertEqual(count3, 2)
+            XCTAssertEqual(count4, 4)   // ob4 is .all, so called x2
+
+            // exercise the replace-an-obsolete code, though there is currently
+            // no direct test to prove it happened vs just got tacked onto
+            // the end.  It at least shows it isn't breaking the other closures
+            // and would catch the case where the new closure failed to install
+            // because of bugs in the replace code (which did happen when I 1st
+            // wrote the test).
+            var count5 = 0
+            let ob5 = items.$x.observe(.did) { _, _ in
+                count5 += 1
+            }
+            items.x = 300
+            XCTAssertEqual(count1, 3)
+            XCTAssertEqual(count2, 1)   // technically this closure no longer exists
+            XCTAssertEqual(count3, 3)
+            XCTAssertEqual(count4, 6)   // ob4 is .all, so called x2
+            XCTAssertEqual(count5, 1)
+
+            // obsolete multiple items
+            ob1.isObsolete = true
+            ob4.isObsolete = true
+            items.x = 400
+            XCTAssertEqual(count1, 3)   // no longer called
+            XCTAssertEqual(count2, 1)   // no longer exists
+            XCTAssertEqual(count3, 4)
+            XCTAssertEqual(count4, 6)   // no longer called
+            XCTAssertEqual(count5, 2)
+
+            // exercise automatic removal in addition to replacement
+            var count6 = 0
+            let ob6 = items.$x.observe(.will) { _, _ in
+                count6 += 1
+            }
+            items.x = 500
+            XCTAssertEqual(count1, 3)   // no longer exists
+            XCTAssertEqual(count2, 1)   // no longer exists
+            XCTAssertEqual(count3, 5)
+            XCTAssertEqual(count4, 6)   // no longer exists
+            XCTAssertEqual(count5, 3)
+            XCTAssertEqual(count6, 1)
+
+            // add another before removing a bunch
+            var count7 = 0
+            let ob7 = items.$x.observe(.did) { _, _ in
+                count7 += 1
+            }
+            items.x = 600
+            XCTAssertEqual(count1, 3)   // no longer exists
+            XCTAssertEqual(count2, 1)   // no longer exists
+            XCTAssertEqual(count3, 6)
+            XCTAssertEqual(count4, 6)   // no longer exists
+            XCTAssertEqual(count5, 4)
+            XCTAssertEqual(count6, 2)
+            XCTAssertEqual(count7, 1)
+
+            // exercise remove() releasing obsolete items.  Like
+            // the replace code in observe() there is currently
+            // no direct test that it really happens, since once
+            // you disable an item it won't get called whether it
+            // remains in the array or not, but this at least
+            // tries to show that it doesn't mess up any later
+            // functioning, like adding more observers.
+            ob3.isObsolete = true
+            ob7.isObsolete = true
+            XCTAssertTrue(items.$x.remove(ob5))
+            items.x = 700
+            XCTAssertEqual(count1, 3)   // no longer exists
+            XCTAssertEqual(count2, 1)   // no longer exists
+            XCTAssertEqual(count3, 6)   // automatically removed
+            XCTAssertEqual(count4, 6)   // no longer exists
+            XCTAssertEqual(count5, 4)   // manually removed (above)
+            XCTAssertEqual(count6, 3)
+            XCTAssertEqual(count7, 1)   // automatically removed
+
+            // finally test cleanse(), which is really just a
+            // special case of remove(), first without anything
+            // being in there to cleanse.
+            items.$x.cleanse()
+            items.x = 800
+            XCTAssertEqual(count1, 3)   // no longer exists
+            XCTAssertEqual(count2, 1)   // no longer exists
+            XCTAssertEqual(count3, 6)   // no longer exists
+            XCTAssertEqual(count4, 6)   // no longer exists
+            XCTAssertEqual(count5, 4)   // no longer exists
+            XCTAssertEqual(count6, 4)
+            XCTAssertEqual(count7, 1)   // no longer exists
+
+            // let's add a couple back in just for fun
+            // before removing them all via cleanse()
+            var count8 = 0
+            let ob8 = items.$x.observe(.did) { _, _ in
+                count8 += 1
+            }
+            var count9 = 0
+            let ob9 = items.$x.observe(.did) { _, _ in
+                count9 += 1
+            }
+            items.x = 900
+            XCTAssertEqual(count1, 3)   // no longer exists
+            XCTAssertEqual(count2, 1)   // no longer exists
+            XCTAssertEqual(count3, 6)   // no longer exists
+            XCTAssertEqual(count4, 6)   // no longer exists
+            XCTAssertEqual(count5, 4)   // no longer exists
+            XCTAssertEqual(count6, 5)
+            XCTAssertEqual(count7, 1)   // no longer exists
+            XCTAssertEqual(count8, 1)
+            XCTAssertEqual(count9, 1)
+
+            // now mark all the remaining ones as obsolete
+            ob6.isObsolete = true
+            ob8.isObsolete = true
+            ob9.isObsolete = true
+            items.$x.cleanse()
+            XCTAssertEqual(count1, 3)   // no longer exists
+            XCTAssertEqual(count2, 1)   // no longer exists
+            XCTAssertEqual(count3, 6)   // no longer exists
+            XCTAssertEqual(count4, 6)   // no longer exists
+            XCTAssertEqual(count5, 4)   // no longer exists
+            XCTAssertEqual(count6, 5)   // no longer exists
+            XCTAssertEqual(count7, 1)   // no longer exists
+            XCTAssertEqual(count8, 1)   // no longer exists
+            XCTAssertEqual(count9, 1)   // no longer exists
+
+            // finally let's add one back to the now cleansed array
+            var count10 = 0
+            _ = items.$x.observe(.did) { _, _ in
+                count10 += 1
+            }
+            items.x = 1000
+            XCTAssertEqual(count1, 3)   // no longer exists
+            XCTAssertEqual(count2, 1)   // no longer exists
+            XCTAssertEqual(count3, 6)   // no longer exists
+            XCTAssertEqual(count4, 6)   // no longer exists
+            XCTAssertEqual(count5, 4)   // no longer exists
+            XCTAssertEqual(count6, 5)   // no longer exists
+            XCTAssertEqual(count7, 1)   // no longer exists
+            XCTAssertEqual(count8, 1)   // no longer exists
+            XCTAssertEqual(count9, 1)   // no longer exists
+            XCTAssertEqual(count10, 1)
+
+            struct Observe {
+                @Observable var val = 1
+            }
+            
+            let x : Observe? = Observe()
+            var y : Observe? = Observe()
+            
+            _ = x!.$val.bind(y!.$val)
+            y = nil
+        }   // testObsolescence
 
 
         private func _reset_all() {

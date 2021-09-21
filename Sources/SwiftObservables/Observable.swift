@@ -23,11 +23,12 @@
     /// will persist in its original state for the life of the observed item.
     public func observe(_ type: ObservationType, using call: @escaping ObservationFunc) -> Observation {
         let o = Observation(type)
-        if callbacks != nil {
-            callbacks!.append((o, call))
-        }
-        else {
+        if callbacks == nil {
             callbacks = [(o, call)]
+        }
+        // try to replace an obsolete item w/new one, otherwise just append it
+        else if (!clean_obsolete_observations(o, call)) {
+            callbacks!.append((o, call))
         }
         return o    // the caller may store this so it can modify its state later on
     }   // observe
@@ -49,11 +50,9 @@
         let b = (binding == nil)
         if (b) {
             // us watching them
-            binding = obj.observe(.did, using: bindingObserver)
-            obj.cobinding = binding
+            install_binding(obj)
             // them watching us
-            obj.binding = observe(.did, using: obj.bindingObserver)
-            cobinding = obj.binding
+            obj.install_binding(self)
         }
         return b
     }   // bind
@@ -107,18 +106,31 @@
     public func remove(_ o: Observation) -> Bool {
         if (callbacks != nil) && !callbacks!.isEmpty {
             // There's something to search
-            let iEnd = callbacks!.count
-            for i in 0 ..< iEnd {
-                if callbacks![i].observation === o {
-                    callbacks!.remove(at: i)
-                    return true
-                }
-            }
+            o.isObsolete = true
+            return clean_obsolete_observations(o, nil)
         }
         return false
     }   // remove
-    
-    
+
+
+    /// cleanse
+    ///
+    /// Call this to remove all obsolete observations from an Observable.
+    /// Obsolete observations are automatically removed during calls to all
+    /// the other APIs (`bind()`, `unbind()`, `observe()`, `remove()`).
+    /// However, these calls may never happen after items have been marked
+    /// obsolete, so this API provides a mechanism to guarantee unused
+    /// closures are no longer referenced.  The code controlling an `@Obervable`
+    /// may want to periodically call `cleanse()` to ensure any  observer's request
+    /// to obsolete an `Observation` is respected.
+    public func cleanse() {
+        // This call relies on the fact that remove() doesn't care
+        // if the observation exists; it triggers the purge anyway
+        let o = Observation(.disabled)
+        _ = remove(o)
+    }   // cleanse
+
+
     // ------------------------ Definitions ------------------------
 
     /// callback format
@@ -158,37 +170,55 @@
 
 
     // ------------------------ Binding Closure ------------------------
-    func bindingObserver(_ newValue: Value, _ oldValue: Value?) {
-        guard let _ = binding, let co = cobinding, let call = callbacks else {
-            /// This shouldn't be possible, it means another object is bound to
-            /// us, but we're not bound to it or vice versa.  It is possible to create such a
-            /// set up on purpose by directly manipulating the binding parameters
-            /// of objects outside the `bind()` and `unbind()` APIs, but that is not
-            /// the intended behavior.  If you did that, congrats, very clever,
-            /// feel free to remove this assertion.  Othwewise, if you are here,
-            /// this is an invalid program state and should be reported as a bug.
-            fatalError("Binding closure triggered on an object that has no binding observation set.")
-        }
-        guard oldValue != nil else {
-            /// This shouldn't happen, but per the above comments maybe you are
-            /// trying to do something clever, in which case remove this assertion.
-            /// Otherwise, this is a bug so please report it.
-            fatalError("Binding closure called with 'oldValue' set to nil.  Bindings are 'didSet' observations, so this should never happen and implies a 'willSet' observation triggered this code.")
-        }
-        /// Our companion object has changed, so update our value to match.  If it
-        /// is the only thing observing us, just update the underlying value since
-        /// that avoids all the `set()` logic.  If anything else is watching, we turn
-        /// off the binding observation to avoid a recursive echo back the to thing
-        /// that informed us it just changed.
-        if call.count > 1 {
-            co.kind = .disabled
-                wrappedValue = newValue     // trigger the other observers
-            co.kind = .did
-        }
-        else {
-            _value = newValue
-        }
-    }   // bindingObserver
+    func install_binding(_ obj: Observable<Value>) {
+        /// This trailing closure captures `self`, so we use a capture list
+        /// to specify a weak relationship to it.  This avoids a strong
+        /// reference cycle between the two bound objects.  We check for
+        /// this case, though the `deinit` for this propertywrapper should
+        /// have disabled the observation prior to that.
+        binding = obj.observe(.did) {
+            [weak self] (newValue: Value, oldValue: Value?) in
+            if let _self = self {
+                guard let _ = _self.binding, let co = _self.cobinding, let call = _self.callbacks else {
+                    /// This shouldn't be possible, it means another object is bound to
+                    /// us, but we're not bound to it or vice versa.  It is possible to create such a
+                    /// set up on purpose by directly manipulating the binding parameters
+                    /// of objects outside the `bind()` and `unbind()` APIs, but that is not
+                    /// the intended behavior.  If you did that, congrats, very clever,
+                    /// feel free to remove this assertion.  Othwewise, if you are here,
+                    /// this is an invalid program state and should be reported as a bug.
+                    fatalError("Binding closure triggered on an object that has no binding observation set.")
+                }
+                guard oldValue != nil else {
+                    /// This shouldn't happen, but per the above comments maybe you are
+                    /// trying to do something clever, in which case remove this assertion.
+                    /// Otherwise, this is a bug so please report it.
+                    fatalError("Binding closure called with 'oldValue' set to nil.  Bindings are 'didSet' observations, so this should never happen and implies a 'willSet' observation triggered this code.")
+                }
+                /// Our companion object has changed, so update our value to match.  If it
+                /// is the only thing observing us, just update the underlying value since
+                /// that avoids all the `set()` logic.  If anything else is watching, we turn
+                /// off the binding observation to avoid a recursive echo back the to thing
+                /// that informed us it just changed.
+                if call.count > 1 {
+                    co.kind = .disabled
+                    _self.wrappedValue = newValue     // trigger the other observers
+                    co.kind = .did
+                }
+                else {
+                    _self._value = newValue
+                }
+            }
+            else {
+                // self is nil, which means our object & this wrapper went
+                // out of scope
+                print("Binding was triggered after self went out of scope\n")
+            }
+        }   // trailing closure: bindingObserver
+
+        // also capture the returned Observation for the other object
+        obj.cobinding = binding
+    }   // install_binding
 
 
     // ------------------------ Wrapped Property ------------------------
@@ -253,25 +283,61 @@
     }   // init
 
 
+    // clean up
+    deinit {
+        // If a binding is active, we mark it as obsolete, which permanently
+        // disables it and tells other code areas to remove or replace its entry
+        if let ob = binding {
+            ob.isObsolete = true
+        }
+    }   // deinit
+
+
     // ------------------------ private ------------------------
     private func array_walk(_ old: Value, _ new: Value) {
         // process any active .will or .all observations
-        let iEnd = callbacks!.count
-        for i in 0 ..< iEnd {
-            let o = callbacks![i].observation
-            if o.isEnabled && (o.kind != .did) {
-                callbacks![i].func(new, nil)
+        for entry in callbacks! {
+            if entry.observation.isEnabled && (entry.observation.kind != .did) {
+                entry.func(new, nil)
             }
         }
          _value = new
         // process any active .did or .all observations
-        for i in 0 ..< iEnd {
-            let o = callbacks![i].observation
-            if o.isEnabled && (o.kind != .will) {
-                callbacks![i].func(new, old)
+        for entry in callbacks! {
+            if entry.observation.isEnabled && (entry.observation.kind != .will) {
+                entry.func(new, old)
             }
         }
     }   // array_walk
 
+
+    private func clean_obsolete_observations(_ ob: Observation, _ call: ObservationFunc?) -> Bool {
+        // Walk the array and strip out anything marked obsolete.
+        // If the optional argument is provided, replace the 1st
+        // obsolete we find with both args. Otherwise, `ob` is just
+        // an obsolete we are confirming was present.  The first
+        // case covers `observe()` and the second `remove()`. Returns
+        // `true` if either case happens.
+        var bHandled = false
+        for idx in (0 ..< callbacks!.endIndex).reversed() {
+            let o = callbacks![idx].observation
+            if (o.isObsolete) {
+                if !bHandled {
+                    // we'e still looking to replace or find `ob`
+                    if let c = call {
+                        callbacks![idx].observation = ob
+                        callbacks![idx].func = c
+                        bHandled = true
+                        continue
+                    }
+                    else if (ob === o) {
+                        bHandled = true
+                    }
+                }
+                callbacks!.remove(at: idx)   // release the closue reference
+            }
+        }
+        return bHandled
+    }   // clean_obsolete_observations
 
 }   // Observable (property wrapper)
